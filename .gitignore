@@ -2,3 +2,5 @@ bin/
 obj/
 *.user
 *.suo
+Validation/cgal_worker/build/
+Validation/cgal_worker/bin/
