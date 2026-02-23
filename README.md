@@ -14,6 +14,7 @@ HTTP MCP server in C# that renders OpenSCAD models into deterministic multi-view
 - F6-style render pipeline (mesh export + render), not OpenSCAD preview mode
 - Camera centered to model bbox center (`$vpt`) with deterministic distance (`$vpd`)
 - On-image overlays: top label + XYZ legend (X red, Y green, Z blue)
+- Optional CGAL validation worker integration for disconnected parts and self-intersections
 
 ## Requirements
 
@@ -25,6 +26,16 @@ HTTP MCP server in C# that renders OpenSCAD models into deterministic multi-view
 ```bash
 dotnet run --urls http://127.0.0.1:8770
 ```
+
+To run with CGAL worker:
+
+```bash
+CGAL_WORKER_PATH=/absolute/path/to/cgal_worker dotnet run --urls http://127.0.0.1:8770
+```
+
+Default worker path (if env var not set):
+
+- `Validation/cgal_worker/bin/cgal_worker`
 
 Then:
 

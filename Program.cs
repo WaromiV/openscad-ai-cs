@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using c_server.Validation;
+using c_server.Validation.Models;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
@@ -12,6 +14,7 @@ using SixLabors.ImageSharp.Processing;
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
+var validationService = new CgalWorkerValidationService(builder.Environment.ContentRootPath);
 
 const string ServerName = "openscad-render-mcp-csharp";
 const string ServerVersion = "0.1.0";
@@ -195,6 +198,19 @@ app.MapPost("/mcp", async (HttpRequest request) =>
                     },
                 };
 
+                if (!payload.Validation.Ok && payload.Validation.Warnings.Count > 0)
+                {
+                    var summary = string.Join(
+                        " | ",
+                        payload.Validation.Warnings.Select(w => $"{w.Code}:{w.Message}")
+                    );
+                    content.Add(new
+                    {
+                        type = "text",
+                        text = $"Validation warnings ({payload.Validation.Engine}): {summary}",
+                    });
+                }
+
                 var imageInfo = new List<object>();
                 for (var i = 0; i < renders.Count; i++)
                 {
@@ -237,6 +253,7 @@ app.MapPost("/mcp", async (HttpRequest request) =>
                         shot_policy = payload.ShotPolicy,
                         shot_manifest = payload.ShotManifest,
                         camera = payload.Camera,
+                        validation = payload.Validation,
                         images = imageInfo,
                     },
                     isError = false,
@@ -269,6 +286,7 @@ RenderPayload RenderFixedShots(string scadCode, string scadPath)
     {
         ExportAsciiStl(scadPath, stlPath);
         var meshStats = ParseMeshStats(stlPath);
+        var validation = validationService.Validate(stlPath);
         var center = ComputeCenter(meshStats);
         var distance = ComputeDistance(meshStats);
 
@@ -333,7 +351,8 @@ RenderPayload RenderFixedShots(string scadCode, string scadPath)
             meshStats.UniqueEdgeCount,
             "fixed_6_shot_manifest_v2",
             ordered.Select(x => x.ViewLabel).ToArray(),
-            new CameraInfo(new[] { center.X, center.Y, center.Z }, distance, "model_bbox_center")
+            new CameraInfo(new[] { center.X, center.Y, center.Z }, distance, "model_bbox_center"),
+            validation
         );
     }
     finally
@@ -696,7 +715,8 @@ record RenderPayload(
     int EdgeCounter,
     string ShotPolicy,
     string[] ShotManifest,
-    CameraInfo Camera
+    CameraInfo Camera,
+    ValidationReport Validation
 );
 
 record Vec3(double X, double Y, double Z);
