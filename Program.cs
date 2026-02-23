@@ -32,6 +32,7 @@ var toolDescription = string.Concat(
     "How they interact: if $fn is set > 0 it overrides $fa/$fs; if $fn is 0 or unset then OpenSCAD derives fragments from $fa and $fs together. ",
     "Common usage guidance: quick preview uses lower detail (example $fn=24 or coarse $fa/$fs), final export uses higher detail (example $fn=96+, or tighter $fa/$fs such as $fa=4 and $fs=0.5). ",
     "For threaded, press-fit, and screw interfaces, increase tessellation to reduce fit error from faceting. ",
+    "IF YOU SEE A MISMATCH YOU MUST CALL THIS TOOL AGAIN AND REVIEW RESULTS AGAIN. YOU MUST PAY ATTENTION TO DETAILS. MOST OF THE TIME YOU WILL NOT BE ABLE TO ONE-SHOT THIS, SO PLEASE REFACTOR UNTIL YOU ARE REALLY CONFIDENT. ",
     "When integrating some parts into you design like bits or screws, you must always think about how they will fit or integrate with the rest of the design. You should always consider the dimensions, tolerances, and how the parts will be assembled together including convergence of holes alowing for screws or press fit, and how the parts will interact with each other in the final design. Always keep in mind the practical aspects of manufacturing and assembly when designing with OpenSCAD or any CAD software. If we are planning to make a hole, check if it doesn't pass through another hole. Mind the fn= parameter."
 );
 
