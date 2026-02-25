@@ -1,8 +1,12 @@
 #include <CGAL/Polygon_mesh_processing/connected_components.h>
+#include <CGAL/Polygon_mesh_processing/polygon_soup_to_polygon_mesh.h>
+#include <CGAL/Polygon_mesh_processing/repair_polygon_soup.h>
+#include <CGAL/Polygon_mesh_processing/orient_polygon_soup.h>
 #include <CGAL/Polygon_mesh_processing/self_intersections.h>
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/IO/polygon_mesh_io.h>
+#include <CGAL/IO/STL.h>
 
 #include <iostream>
 #include <sstream>
@@ -39,8 +43,40 @@ int main(int argc, char** argv) {
 
   const std::string stl_path = argv[1];
   Mesh mesh;
-  if (!CGAL::IO::read_polygon_mesh(stl_path, mesh) || CGAL::is_empty(mesh)) {
+  std::vector<Point> points;
+  std::vector<std::array<std::size_t, 3>> facets;
+
+  auto read_soup = [&](bool binary_mode) {
+    points.clear();
+    facets.clear();
+    return CGAL::IO::read_STL(
+      stl_path,
+      points,
+      facets,
+      CGAL::parameters::use_binary_mode(binary_mode)
+    );
+  };
+
+  if (!read_soup(false) && !read_soup(true)) {
     std::cout << "{\"ok\":false,\"engine\":\"cgal\",\"warnings\":[{\"code\":\"MESH_READ_FAILED\",\"severity\":\"high\",\"message\":\"Failed to read mesh from "
+              << json_escape(stl_path)
+              << "\"}],\"metrics\":{}}\n";
+    return 3;
+  }
+
+  if (points.empty() || facets.empty()) {
+    std::cout << "{\"ok\":false,\"engine\":\"cgal\",\"warnings\":[{\"code\":\"MESH_READ_FAILED\",\"severity\":\"high\",\"message\":\"Mesh data empty for "
+              << json_escape(stl_path)
+              << "\"}],\"metrics\":{}}\n";
+    return 3;
+  }
+
+  PMP::repair_polygon_soup(points, facets);
+
+  PMP::orient_polygon_soup(points, facets);
+  PMP::polygon_soup_to_polygon_mesh(points, facets, mesh);
+  if (CGAL::is_empty(mesh)) {
+    std::cout << "{\"ok\":false,\"engine\":\"cgal\",\"warnings\":[{\"code\":\"MESH_READ_FAILED\",\"severity\":\"high\",\"message\":\"Failed to build mesh from "
               << json_escape(stl_path)
               << "\"}],\"metrics\":{}}\n";
     return 3;

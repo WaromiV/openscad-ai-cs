@@ -31,6 +31,7 @@ public static class Program
     [
       new RenderOpenScadTool(validationService, builder.Environment.ContentRootPath),
       new CompareRendersTool(),
+      new SaveImageTool(),
     ]);
 
     // Map HTTP endpoints for health and MCP JSON-RPC.

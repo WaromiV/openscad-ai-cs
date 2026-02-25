@@ -178,6 +178,7 @@ public sealed class RenderOpenScadTool : IMcpTool
       content.Add(new
       {
         type = "image",
+        image_path = render.ImagePath,
         data = imageB64,
         mimeType = render.MimeType,
       });

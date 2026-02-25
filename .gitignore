@@ -5,3 +5,6 @@ obj/
 Validation/cgal_worker/build/
 Validation/cgal_worker/bin/
 .idea/
+.DS_Store
+renders/
+references/
