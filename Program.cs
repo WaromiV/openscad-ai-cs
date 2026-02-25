@@ -31,12 +31,21 @@ var toolDescription = string.Concat(
   "OpenSCAD facet controls (the practical FN settings to use) are: ",
   "$fn: fixed number of fragments (explicit polygon sides; great for final quality cylinders/spheres), ",
   "$fa: minimum angle per fragment in degrees (adaptive smoothness based on curvature; good global quality control), ",
-  "$fs: minimum fragment size in model units (adaptive smoothness based on physical segment length; good for scale-consistent tessellation). ",
-  "How they interact: if $fn is set > 0 it overrides $fa/$fs; if $fn is 0 or unset then OpenSCAD derives fragments from $fa and $fs together. ",
-  "Common usage guidance: quick preview uses lower detail (example $fn=24 or coarse $fa/$fs), final export uses higher detail (example $fn=96+, or tighter $fa/$fs such as $fa=4 and $fs=0.5). ",
+  "$fs: minimum fragment size in model units (adaptive smoothness based on physical segment length; good for " +
+  "scale-consistent tessellation). ",
+  "How they interact: if $fn is set > 0 it overrides $fa/$fs; if $fn is 0 or unset then OpenSCAD derives fragments from " +
+  "$fa and $fs together. ",
+  "Common usage guidance: quick preview uses lower detail (example $fn=24 or coarse $fa/$fs), final export uses higher " +
+  "detail (example $fn=96+, or tighter $fa/$fs such as $fa=4 and $fs=0.5). ",
   "For threaded, press-fit, and screw interfaces, increase tessellation to reduce fit error from faceting. ",
-  "IF YOU SEE A MISMATCH YOU MUST CALL THIS TOOL AGAIN AND REVIEW RESULTS AGAIN. YOU MUST PAY ATTENTION TO DETAILS. MOST OF THE TIME YOU WILL NOT BE ABLE TO ONE-SHOT THIS, SO PLEASE REFACTOR UNTIL YOU ARE REALLY CONFIDENT. ",
-  "When integrating some parts into you design like bits or screws, you must always think about how they will fit or integrate with the rest of the design. You should always consider the dimensions, tolerances, and how the parts will be assembled together including convergence of holes alowing for screws or press fit, and how the parts will interact with each other in the final design. Always keep in mind the practical aspects of manufacturing and assembly when designing with OpenSCAD or any CAD software. If we are planning to make a hole, check if it doesn't pass through another hole. Mind the fn= parameter."
+  "IF YOU SEE A MISMATCH YOU MUST CALL THIS TOOL AGAIN AND REVIEW RESULTS AGAIN. YOU MUST PAY ATTENTION TO DETAILS. " +
+  "MOST OF THE TIME YOU WILL NOT BE ABLE TO ONE-SHOT THIS, SO PLEASE REFACTOR UNTIL YOU ARE REALLY CONFIDENT. ",
+  "When integrating some parts into you design like bits or screws, you must always think about how they will fit or " +
+  "integrate with the rest of the design. You should always consider the dimensions, tolerances, and how the parts will " +
+  "be assembled together including convergence of holes allowing for screws or press fit, and how the parts will " +
+  "interact with each other in the final design. Always keep in mind the practical aspects of manufacturing and " +
+  "assembly when designing with OpenSCAD or any CAD software. If we are planning to make a hole, check if it doesn't " +
+  "pass through another hole. Mind the fn= parameter."
 );
 
 var baseShots = new List<ShotSpec>
@@ -116,8 +125,8 @@ app.MapPost("/mcp", async (HttpRequest request) =>
     {
       return Results.Ok(JsonRpcResult(requestId, new
       {
-        tools = new[]
-        {
+        tools =
+        [
           new
           {
             name = ToolName,
@@ -134,11 +143,11 @@ app.MapPost("/mcp", async (HttpRequest request) =>
                     "Absolute or workspace-relative path to a .scad file on disk. Image size is fixed by server policy.",
                 },
               },
-              required = new[] { "scad_file_path" },
+              required = ["scad_file_path"],
               additionalProperties = false,
             },
           },
-        },
+        ],
       }));
     }
 
@@ -286,6 +295,7 @@ RenderPayload RenderFixedShots(string scadCode, string scadPath)
   var rendersDir = Path.Combine(projectRoot, "renders");
   Directory.CreateDirectory(rendersDir);
 
+  // Export to STL so we can extract mesh stats and validation data before rendering.
   var stlPath = Path.Combine(rendersDir, $"mcp_mesh_{DateTime.UtcNow:yyyyMMdd_HHmmss_fffffff}.stl");
   try
   {
@@ -296,6 +306,7 @@ RenderPayload RenderFixedShots(string scadCode, string scadPath)
     var distance = ComputeDistance(meshStats);
 
     var shotOutputs = new Dictionary<string, RenderItem>(StringComparer.Ordinal);
+    // Render each base shot in a temporary wrapper SCAD file.
     foreach (var shot in baseShots)
     {
       var wrapperScad = BuildViewScad(stlPath, shot, center, distance);
@@ -328,6 +339,7 @@ RenderPayload RenderFixedShots(string scadCode, string scadPath)
       throw new InvalidOperationException("Fixed shot 'top_ne' missing");
     }
 
+    // Create a zoomed image variant for the top_ne view.
     var zoomPath = Path.Combine(rendersDir, $"render_zoomx3_{DateTime.UtcNow:yyyyMMdd_HHmmss_fffffff}.png");
     CreateZoomedImage(topNeRender.ImagePath, zoomPath, 3, ZoomShotLabel);
     var zoomRender = new RenderItem(
@@ -339,6 +351,7 @@ RenderPayload RenderFixedShots(string scadCode, string scadPath)
       3
     );
 
+    // Order the renders deterministically for downstream consumers.
     var ordered = new List<RenderItem>
     {
       shotOutputs["top_ne"],
@@ -352,12 +365,12 @@ RenderPayload RenderFixedShots(string scadCode, string scadPath)
     return new RenderPayload(
       ordered,
       "deterministic_cli_overlays_with_fixed_view_labels",
-      new[] { "axes", "scales", "edges", "top_label", "xyz_legend" },
+      ["axes", "scales", "edges", "top_label", "xyz_legend"],
       meshStats,
       meshStats.UniqueEdgeCount,
       "fixed_6_shot_manifest_v2",
       ordered.Select(x => x.ViewLabel).ToArray(),
-      new CameraInfo(new[] { center.X, center.Y, center.Z }, distance, "model_bbox_center"),
+      new CameraInfo([center.X, center.Y, center.Z], distance, "model_bbox_center"),
       validation
     );
   }
@@ -390,30 +403,31 @@ string ResolveScadPath(string rawPath)
 
 void ExportAsciiStl(string scadPath, string stlPath)
 {
-  RunOpenScad(new[]
-  {
+  RunOpenScad(
+  [
     "-o", stlPath,
     "--export-format", "asciistl",
     scadPath,
     "--render",
-  });
+  ]);
 }
 
 void RenderPng(string scadPath, string outputPng, int width, int height)
 {
-  RunOpenScad(new[]
-  {
+  RunOpenScad(
+  [
     "-o", outputPng,
     scadPath,
     "--render",
     $"--imgsize={width},{height}",
     "--projection=o",
     "--view=axes,scales,edges",
-  });
+  ]);
 }
 
 void RunOpenScad(IEnumerable<string> args)
 {
+  // Configure the OpenSCAD CLI invocation with redirected output for error handling.
   var psi = new ProcessStartInfo
   {
     FileName = "openscad",
@@ -426,6 +440,7 @@ void RunOpenScad(IEnumerable<string> args)
     psi.ArgumentList.Add(arg);
   }
 
+  // Execute and capture stdout/stderr for diagnostics.
   using var process = Process.Start(psi);
   if (process is null)
   {
@@ -436,6 +451,7 @@ void RunOpenScad(IEnumerable<string> args)
   var stderr = process.StandardError.ReadToEnd();
   process.WaitForExit();
 
+  // Fail fast with the most relevant output if the process reports errors.
   if (process.ExitCode != 0)
   {
     var detail = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
@@ -447,6 +463,7 @@ string BuildViewScad(string stlPath, ShotSpec shot, Vec3 center, double vpd)
 {
   var escapedPath = stlPath.Replace("\\", "/").Replace("\"", "\\\"");
   var sb = new StringBuilder();
+  // Build a minimal SCAD snippet that sets the view and imports the STL.
   sb.Append("$vpr=[")
     .Append(shot.Rx).Append(',').Append(shot.Ry).Append(',').Append(shot.Rz).AppendLine("]; ")
     .Append("$vpt=[")
@@ -465,6 +482,7 @@ MeshStats ParseMeshStats(string stlPath)
   var triangles = new List<(Vec3 A, Vec3 B, Vec3 C)>();
   var current = new List<Vec3>(3);
 
+  // Parse STL vertex lines, collecting triangles as we go.
   foreach (var line in File.ReadLines(stlPath))
   {
     var trimmed = line.Trim();
@@ -498,9 +516,10 @@ MeshStats ParseMeshStats(string stlPath)
 
   if (vertices.Count == 0)
   {
-    return new MeshStats(0, 0, 0, new[] { 0d, 0d, 0d }, new[] { 0d, 0d, 0d }, new[] { 0d, 0d, 0d });
+    return new MeshStats(0, 0, 0, [0d, 0d, 0d], [0d, 0d, 0d], [0d, 0d, 0d]);
   }
 
+  // Compute unique vertex/edge counts for mesh metrics.
   var uniqueVertices = new HashSet<string>(vertices.Select(VertexKey));
   var uniqueEdges = new HashSet<string>(StringComparer.Ordinal);
   foreach (var (a, b, c) in triangles)
@@ -510,6 +529,7 @@ MeshStats ParseMeshStats(string stlPath)
     AddEdge(c, a, uniqueEdges);
   }
 
+  // Derive bounding box extents from the vertex list.
   var minX = vertices.Min(v => v.X);
   var minY = vertices.Min(v => v.Y);
   var minZ = vertices.Min(v => v.Z);
@@ -521,14 +541,13 @@ MeshStats ParseMeshStats(string stlPath)
     uniqueVertices.Count,
     triangles.Count,
     uniqueEdges.Count,
-    new[] { minX, minY, minZ },
-    new[] { maxX, maxY, maxZ },
-    new[]
-    {
+    [minX, minY, minZ],
+    [maxX, maxY, maxZ],
+    [
       Math.Round(maxX - minX, 6),
       Math.Round(maxY - minY, 6),
       Math.Round(maxZ - minZ, 6),
-    }
+    ]
   );
 }
 
@@ -567,6 +586,7 @@ void BakeTopLabelAndLegend(string imagePath, string labelText)
   var width = image.Width;
   var height = image.Height;
 
+  // Draw the top label banner.
   var bannerHeight = Math.Max(46, (int)(height * 0.09));
   image.Mutate(ctx => ctx.Fill(new Rgba32(0, 0, 0, 200), new Rectangle(0, 0, width, bannerHeight)));
 
@@ -587,6 +607,7 @@ void BakeTopLabelAndLegend(string imagePath, string labelText)
     });
   }
 
+  // Draw the XYZ legend box and axis indicators.
   var pad = Math.Max(8, (int)(Math.Min(width, height) * 0.02));
   var boxW = Math.Max(150, (int)(width * 0.18));
   var boxH = Math.Max(72, (int)(height * 0.12));
@@ -627,12 +648,12 @@ void BakeTopLabelAndLegend(string imagePath, string labelText)
 
 Font? ResolveFont(float size)
 {
-  var candidates = new[]
-  {
+  var candidates =
+  [
     "DejaVu Sans",
     "Liberation Sans",
     "Arial",
-  };
+  ];
   foreach (var family in candidates)
   {
     if (SystemFonts.TryGet(family, out var found))
@@ -650,6 +671,7 @@ void CreateZoomedImage(string sourcePath, string outputPath, int zoomFactor, str
   var width = source.Width;
   var height = source.Height;
 
+  // Crop the center region, then scale back up to the original size.
   var cropW = Math.Max(2, width / zoomFactor);
   var cropH = Math.Max(2, height / zoomFactor);
   var left = Math.Max(0, (width - cropW) / 2);
@@ -661,6 +683,7 @@ void CreateZoomedImage(string sourcePath, string outputPath, int zoomFactor, str
     ctx.Resize(width, height, KnownResamplers.Lanczos3);
   });
   source.Save(outputPath, new PngEncoder());
+  // Apply the same labeling and legend overlays as the base renders.
   BakeTopLabelAndLegend(outputPath, labelText);
 }
 
@@ -692,8 +715,21 @@ object JsonRpcError(object id, int code, string message) => new
   error = new { code, message },
 };
 
+/// <summary>Describes a deterministic render shot configuration.</summary>
+/// <param name="Key">Stable identifier for the shot.</param>
+/// <param name="Label">Human-readable label used in overlays.</param>
+/// <param name="Rx">Rotation around the X axis in degrees.</param>
+/// <param name="Ry">Rotation around the Y axis in degrees.</param>
+/// <param name="Rz">Rotation around the Z axis in degrees.</param>
 record ShotSpec(string Key, string Label, int Rx, int Ry, int Rz);
 
+/// <summary>Represents a rendered image artifact and its metadata.</summary>
+/// <param name="ImagePath">Absolute path to the rendered image.</param>
+/// <param name="ImageSize">Human-readable image dimensions.</param>
+/// <param name="MimeType">MIME type for the image payload.</param>
+/// <param name="ViewKey">Stable view key for downstream consumers.</param>
+/// <param name="ViewLabel">Human-readable view label.</param>
+/// <param name="ZoomFactor">Zoom factor applied to the render.</param>
 record RenderItem(
   string ImagePath,
   string ImageSize,
@@ -703,6 +739,10 @@ record RenderItem(
   int ZoomFactor
 );
 
+/// <summary>Camera metadata for the rendered shot set.</summary>
+/// <param name="VptCenter">Computed center of the model in view space.</param>
+/// <param name="Vpd">Camera distance from the target.</param>
+/// <param name="Mode">Camera mode identifier.</param>
 record CameraInfo(
   [property: JsonPropertyName("vpt_center")]
   double[] VptCenter,
@@ -710,6 +750,13 @@ record CameraInfo(
   [property: JsonPropertyName("mode")] string Mode
 );
 
+/// <summary>Mesh statistics derived from the exported STL.</summary>
+/// <param name="VertexCount">Count of unique vertices.</param>
+/// <param name="TriangleCount">Count of mesh triangles.</param>
+/// <param name="UniqueEdgeCount">Count of unique edges.</param>
+/// <param name="BboxMin">Minimum XYZ bounds.</param>
+/// <param name="BboxMax">Maximum XYZ bounds.</param>
+/// <param name="BboxSize">XYZ extents of the bounding box.</param>
 record MeshStats(
   [property: JsonPropertyName("vertex_count")]
   int VertexCount,
@@ -725,6 +772,16 @@ record MeshStats(
   double[] BboxSize
 );
 
+/// <summary>Aggregated render payload returned by the MCP tool.</summary>
+/// <param name="Renders">Ordered render list.</param>
+/// <param name="AnnotationMode">Overlay annotation mode description.</param>
+/// <param name="Overlays">Enabled overlay types.</param>
+/// <param name="MeshStats">Computed mesh statistics.</param>
+/// <param name="EdgeCounter">Count of unique edges in the mesh.</param>
+/// <param name="ShotPolicy">Identifier for the shot policy.</param>
+/// <param name="ShotManifest">Ordered view labels for the shot set.</param>
+/// <param name="Camera">Camera metadata for the renders.</param>
+/// <param name="Validation">Validation report returned by the CGAL worker.</param>
 record RenderPayload(
   List<RenderItem> Renders,
   string AnnotationMode,
@@ -737,4 +794,8 @@ record RenderPayload(
   ValidationReport Validation
 );
 
+/// <summary>Simple 3D vector value object.</summary>
+/// <param name="X">X coordinate.</param>
+/// <param name="Y">Y coordinate.</param>
+/// <param name="Z">Z coordinate.</param>
 record Vec3(double X, double Y, double Z);

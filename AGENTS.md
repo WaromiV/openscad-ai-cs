@@ -20,6 +20,9 @@
 - C# uses nullable reference types and implicit usings (see `c_server.csproj`).
 - Follow existing formatting: 2-space indentation, `var` for locals when the type is obvious, and expression-bodied helpers when concise.
 - Always use 2-space indentation in edits.
+- Prefer collection expressions (`[a, b, c]`) over `new[] { a, b, c }`.
+- Document every class and every class member with XML doc comments, and add documentation for any undocumented members you touch.
+- For methods longer than 10 lines, explain internal operations with `//` comments; update existing methods that violate this.
 - File and type naming follows standard C# conventions (PascalCase for types, camelCase for locals/parameters).
 
 ## Testing Guidelines
