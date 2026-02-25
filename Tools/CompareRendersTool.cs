@@ -6,10 +6,13 @@ using SixLabors.ImageSharp.Processing;
 
 namespace c_server.Tools;
 
+/// <summary>Compares two images and reports similarity metrics.</summary>
 public sealed class CompareRendersTool : IMcpTool
 {
+  /// <summary>Tool name exposed to MCP clients.</summary>
   public string Name => "compare_renders";
 
+  /// <summary>Human-readable description for MCP tool discovery.</summary>
   public string Description => string.Concat(
     "Compare two images and return quantitative similarity metrics. ",
     "CRITICAL: Use this tool AFTER EVERY render to objectively measure how well your OpenSCAD model matches the reference image. ",
@@ -25,6 +28,7 @@ public sealed class CompareRendersTool : IMcpTool
     "Use structured metrics to guide iterative improvements - don't rely on visual inspection alone."
   );
 
+  /// <summary>JSON schema describing input arguments for the tool.</summary>
   public object InputSchema => new
   {
     type = "object",
@@ -41,12 +45,16 @@ public sealed class CompareRendersTool : IMcpTool
         description = "Absolute or relative path to the rendered image from OpenSCAD to compare against reference.",
       },
     },
-    required = new[] { "reference_image_path", "rendered_image_path" },
+    required = ["reference_image_path", "rendered_image_path"],
     additionalProperties = false,
   };
 
+  /// <summary>Executes the comparison workflow.</summary>
+  /// <param name="args">JSON arguments containing image paths.</param>
+  /// <returns>Structured MCP response payload.</returns>
   public async Task<object> ExecuteAsync(JsonElement args)
   {
+    // Extract and validate input paths.
     var refPathRaw = args.TryGetProperty("reference_image_path", out var refPathElement)
       ? refPathElement.GetString()
       : null;
@@ -67,6 +75,7 @@ public sealed class CompareRendersTool : IMcpTool
     var refPath = ResolveImagePath(refPathRaw!);
     var renderedPath = ResolveImagePath(renderedPathRaw!);
 
+    // Confirm both images exist before comparison.
     if (!File.Exists(refPath))
     {
       throw new FileNotFoundException($"Reference image not found: {refPath}");
@@ -77,18 +86,20 @@ public sealed class CompareRendersTool : IMcpTool
       throw new FileNotFoundException($"Rendered image not found: {renderedPath}");
     }
 
+    // Execute the comparison in a background task.
     var comparisonResult = await Task.Run(() => CompareImages(refPath, renderedPath));
 
+    // Return a summary plus structured metrics.
     return new
     {
-      content = new[]
-      {
+      content =
+      [
         new
         {
           type = "text",
           text = comparisonResult.Summary,
         },
-      },
+      ],
       structuredContent = new
       {
         ssim = comparisonResult.Ssim,
@@ -103,6 +114,9 @@ public sealed class CompareRendersTool : IMcpTool
     };
   }
 
+  /// <summary>Resolves an image path to an absolute path.</summary>
+  /// <param name="rawPath">User-provided path.</param>
+  /// <returns>Absolute image path.</returns>
   private string ResolveImagePath(string rawPath)
   {
     if (Path.IsPathRooted(rawPath))
@@ -113,21 +127,28 @@ public sealed class CompareRendersTool : IMcpTool
     return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), rawPath));
   }
 
+  /// <summary>Compares two images and returns computed metrics.</summary>
+  /// <param name="refPath">Reference image path.</param>
+  /// <param name="renderedPath">Rendered image path.</param>
+  /// <returns>Comparison metrics and summary.</returns>
   private ComparisonResult CompareImages(string refPath, string renderedPath)
   {
     using var refImage = Image.Load<Rgba32>(refPath);
     using var renderedImage = Image.Load<Rgba32>(renderedPath);
 
+    // Normalize size to ensure metrics compare like-for-like pixels.
     if (refImage.Width != renderedImage.Width || refImage.Height != renderedImage.Height)
     {
       renderedImage.Mutate(ctx => ctx.Resize(refImage.Width, refImage.Height, KnownResamplers.Lanczos3));
     }
 
+    // Compute similarity metrics across multiple dimensions.
     var ssim = ComputeSSIM(refImage, renderedImage);
     var mse = ComputeMSE(refImage, renderedImage);
     var histCorr = ComputeHistogramCorrelation(refImage, renderedImage);
     var edgeAlign = ComputeEdgeAlignment(refImage, renderedImage);
 
+    // Build the interpretation and summary.
     var interpretation = InterpretMetrics(ssim, mse, histCorr, edgeAlign);
     var summary = string.Format(CultureInfo.InvariantCulture,
       "Comparison complete: SSIM={0:F4} ({1}), MSE={2:F2} ({3}), Histogram={4:F4} ({5}), Edge={6:F4} ({7}). {8}",
@@ -141,6 +162,10 @@ public sealed class CompareRendersTool : IMcpTool
     return new ComparisonResult(ssim, mse, histCorr, edgeAlign, summary, interpretation);
   }
 
+  /// <summary>Computes the structural similarity index (SSIM).</summary>
+  /// <param name="img1">First image.</param>
+  /// <param name="img2">Second image.</param>
+  /// <returns>SSIM score.</returns>
   private double ComputeSSIM(Image<Rgba32> img1, Image<Rgba32> img2)
   {
     const double c1 = 6.5025;
@@ -152,6 +177,7 @@ public sealed class CompareRendersTool : IMcpTool
     double varX = 0, varY = 0, covXY = 0;
     var n = width * height;
 
+    // First pass: compute mean luminance values.
     for (var y = 0; y < height; y++)
     {
       for (var x = 0; x < width; x++)
@@ -168,6 +194,7 @@ public sealed class CompareRendersTool : IMcpTool
     meanX /= n;
     meanY /= n;
 
+    // Second pass: compute variance and covariance.
     for (var y = 0; y < height; y++)
     {
       for (var x = 0; x < width; x++)
@@ -188,18 +215,24 @@ public sealed class CompareRendersTool : IMcpTool
     varY /= n;
     covXY /= n;
 
+    // Apply the SSIM formula with stability constants.
     var numerator = ((2 * meanX * meanY) + c1) * ((2 * covXY) + c2);
     var denominator = ((meanX * meanX) + (meanY * meanY) + c1) * (varX + varY + c2);
 
     return Math.Clamp(numerator / denominator, 0.0, 1.0);
   }
 
+  /// <summary>Computes mean squared error across RGB channels.</summary>
+  /// <param name="img1">First image.</param>
+  /// <param name="img2">Second image.</param>
+  /// <returns>MSE score.</returns>
   private double ComputeMSE(Image<Rgba32> img1, Image<Rgba32> img2)
   {
     var width = img1.Width;
     var height = img1.Height;
     var sumSquaredError = 0.0;
 
+    // Sum squared channel differences for each pixel.
     for (var y = 0; y < height; y++)
     {
       for (var x = 0; x < width; x++)
@@ -216,11 +249,16 @@ public sealed class CompareRendersTool : IMcpTool
     return sumSquaredError / (width * height * 3.0);
   }
 
+  /// <summary>Computes grayscale histogram correlation.</summary>
+  /// <param name="img1">First image.</param>
+  /// <param name="img2">Second image.</param>
+  /// <returns>Correlation coefficient.</returns>
   private double ComputeHistogramCorrelation(Image<Rgba32> img1, Image<Rgba32> img2)
   {
     var hist1 = new int[256];
     var hist2 = new int[256];
 
+    // Build grayscale histograms for each image.
     for (var y = 0; y < img1.Height; y++)
     {
       for (var x = 0; x < img1.Width; x++)
@@ -234,6 +272,7 @@ public sealed class CompareRendersTool : IMcpTool
       }
     }
 
+    // Compute correlation between histogram vectors.
     var mean1 = hist1.Average();
     var mean2 = hist2.Average();
     var numerator = 0.0;
@@ -253,6 +292,10 @@ public sealed class CompareRendersTool : IMcpTool
     return denominator > 0 ? Math.Clamp(numerator / denominator, -1.0, 1.0) : 0.0;
   }
 
+  /// <summary>Computes edge alignment score using simple gradient magnitude.</summary>
+  /// <param name="img1">First image.</param>
+  /// <param name="img2">Second image.</param>
+  /// <returns>Edge alignment score.</returns>
   private double ComputeEdgeAlignment(Image<Rgba32> img1, Image<Rgba32> img2)
   {
     var edges1 = DetectEdges(img1);
@@ -260,6 +303,7 @@ public sealed class CompareRendersTool : IMcpTool
     var matches = 0;
     var total = 0;
 
+    // Compare edge masks to compute overlap ratio.
     for (var y = 0; y < img1.Height; y++)
     {
       for (var x = 0; x < img1.Width; x++)
@@ -278,6 +322,9 @@ public sealed class CompareRendersTool : IMcpTool
     return total > 0 ? (double)matches / total : 0.0;
   }
 
+  /// <summary>Detects edges using a simple gradient magnitude threshold.</summary>
+  /// <param name="img">Image to process.</param>
+  /// <returns>Edge mask.</returns>
   private bool[,] DetectEdges(Image<Rgba32> img)
   {
     var width = img.Width;
@@ -285,6 +332,7 @@ public sealed class CompareRendersTool : IMcpTool
     var edges = new bool[width, height];
     const int threshold = 30;
 
+    // Apply a small Sobel-like kernel to estimate gradients.
     for (var y = 1; y < height - 1; y++)
     {
       for (var x = 1; x < width - 1; x++)
@@ -314,6 +362,9 @@ public sealed class CompareRendersTool : IMcpTool
     return edges;
   }
 
+  /// <summary>Interprets SSIM into a qualitative label.</summary>
+  /// <param name="ssim">SSIM score.</param>
+  /// <returns>Interpretation label.</returns>
   private string InterpretSSIM(double ssim)
   {
     if (ssim >= 0.95) return "excellent";
@@ -322,6 +373,9 @@ public sealed class CompareRendersTool : IMcpTool
     return "poor";
   }
 
+  /// <summary>Interprets MSE into a qualitative label.</summary>
+  /// <param name="mse">MSE score.</param>
+  /// <returns>Interpretation label.</returns>
   private string InterpretMSE(double mse)
   {
     if (mse < 100) return "excellent";
@@ -329,6 +383,9 @@ public sealed class CompareRendersTool : IMcpTool
     return "high difference";
   }
 
+  /// <summary>Interprets histogram correlation into a qualitative label.</summary>
+  /// <param name="corr">Correlation coefficient.</param>
+  /// <returns>Interpretation label.</returns>
   private string InterpretHistogram(double corr)
   {
     if (corr >= 0.90) return "strong match";
@@ -336,6 +393,9 @@ public sealed class CompareRendersTool : IMcpTool
     return "weak match";
   }
 
+  /// <summary>Interprets edge alignment into a qualitative label.</summary>
+  /// <param name="align">Edge alignment score.</param>
+  /// <returns>Interpretation label.</returns>
   private string InterpretEdgeAlignment(double align)
   {
     if (align >= 0.80) return "well aligned";
@@ -343,8 +403,15 @@ public sealed class CompareRendersTool : IMcpTool
     return "misaligned";
   }
 
+  /// <summary>Combines metric thresholds into an overall interpretation.</summary>
+  /// <param name="ssim">SSIM score.</param>
+  /// <param name="mse">MSE score.</param>
+  /// <param name="histCorr">Histogram correlation.</param>
+  /// <param name="edgeAlign">Edge alignment score.</param>
+  /// <returns>Overall interpretation string.</returns>
   private string InterpretMetrics(double ssim, double mse, double histCorr, double edgeAlign)
   {
+    // Apply tiered thresholds to produce a consolidated interpretation.
     if (ssim >= 0.95 && mse < 100 && histCorr >= 0.90)
     {
       return "Overall: Excellent match. Model is very close to reference.";
