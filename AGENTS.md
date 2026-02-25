@@ -42,6 +42,7 @@
 - There are no automated tests in this repository yet.
 - If you add tests, keep them close to the feature area and document how to run them (e.g., `dotnet test`) in this file.
 - After each batch of changes, verify the codebase is valid (at minimum `dotnet build`) before continuing.
+- After confirming builds (and tests, if any, pass), commit the changes with an appropriate message.
 
 ## Adding New MCP Tools
 - Create a new class in `Tools/` implementing `IMcpTool`
