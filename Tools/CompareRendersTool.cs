@@ -45,7 +45,7 @@ public sealed class CompareRendersTool : IMcpTool
         description = "Absolute or relative path to the rendered image from OpenSCAD to compare against reference.",
       },
     },
-    required = ["reference_image_path", "rendered_image_path"],
+    required = (string[])["reference_image_path", "rendered_image_path"],
     additionalProperties = false,
   };
 
@@ -92,7 +92,7 @@ public sealed class CompareRendersTool : IMcpTool
     // Return a summary plus structured metrics.
     return new
     {
-      content =
+      content = (object[])
       [
         new
         {

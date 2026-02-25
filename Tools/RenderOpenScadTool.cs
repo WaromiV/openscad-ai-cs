@@ -88,7 +88,7 @@ public sealed class RenderOpenScadTool : IMcpTool
         description = "Absolute or workspace-relative path to a .scad file on disk. Image size is fixed by server policy.",
       },
     },
-    required = ["scad_file_path"],
+    required = (string[])["scad_file_path"],
     additionalProperties = false,
   };
 
@@ -609,7 +609,7 @@ public sealed class RenderOpenScadTool : IMcpTool
   /// <returns>Resolved font or null if unavailable.</returns>
   private Font? ResolveFont(float size)
   {
-    var candidates =
+    var candidates = (string[])
     [
       "DejaVu Sans",
       "Liberation Sans",
