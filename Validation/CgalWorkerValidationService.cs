@@ -8,17 +8,17 @@ namespace c_server.Validation;
 public sealed class CgalWorkerValidationService : ICgalValidationService
 {
   /// <summary>Absolute path to the server content root used to resolve the worker location.</summary>
-  private readonly string _contentRoot;
+  private readonly string contentRoot;
   /// <summary>Maximum time to wait for the CGAL worker to complete.</summary>
-  private readonly TimeSpan _timeout;
+  private readonly TimeSpan timeout;
 
   /// <summary>Creates a new CGAL validation service with an optional timeout override.</summary>
   /// <param name="contentRoot">Content root used to resolve the default worker path.</param>
   /// <param name="timeout">Optional timeout override for worker execution.</param>
   public CgalWorkerValidationService(string contentRoot, TimeSpan? timeout = null)
   {
-    _contentRoot = contentRoot;
-    _timeout = timeout ?? TimeSpan.FromSeconds(90);
+    this.contentRoot = contentRoot;
+    this.timeout = timeout ?? TimeSpan.FromSeconds(90);
   }
 
   /// <summary>Runs the CGAL worker validation for the provided STL file.</summary>
@@ -56,7 +56,7 @@ public sealed class CgalWorkerValidationService : ICgalValidationService
     }
 
     using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    timeoutCts.CancelAfter(_timeout);
+    timeoutCts.CancelAfter(timeout);
 
     try
     {
@@ -69,7 +69,7 @@ public sealed class CgalWorkerValidationService : ICgalValidationService
       TryKill(process);
       return BuildRuntimeErrorReport(
         started.Elapsed.TotalMilliseconds,
-        $"CGAL worker timed out after {_timeout.TotalSeconds:0.#}s",
+        $"CGAL worker timed out after {timeout.TotalSeconds:0.#}s",
         "CGAL_WORKER_TIMEOUT"
       );
     }
@@ -153,7 +153,7 @@ public sealed class CgalWorkerValidationService : ICgalValidationService
       return Path.GetFullPath(fromEnv);
     }
 
-    return Path.Combine(_contentRoot, "Validation", "cgal_worker", "bin", "cgal_worker");
+    return Path.Combine(contentRoot, "Validation", "cgal_worker", "bin", "cgal_worker");
   }
 
   /// <summary>Converts a JSON element into a serializable .NET value.</summary>

@@ -1,7 +1,13 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `Program.cs` hosts the minimal ASP.NET Core HTTP MCP server and rendering pipeline.
+- `Program.cs` hosts the minimal ASP.NET Core HTTP MCP server with tool routing.
+- `Tools/` contains MCP tool implementations:
+  - `IMcpTool.cs` - Tool interface contract
+  - `McpToolRegistry.cs` - Tool discovery and registration
+  - `RenderOpenScadTool.cs` - OpenSCAD rendering implementation
+  - `CompareRendersTool.cs` - Image comparison implementation
+  - `Models.cs` - Shared data models (ShotSpec, MeshStats, etc.)
 - `Validation/` contains C# validation services plus the optional CGAL worker integration.
 - `Validation/cgal_worker/` is a C++ CGAL tool with its own `CMakeLists.txt` and build instructions.
 - `Properties/launchSettings.json` defines local run profiles.
@@ -24,10 +30,24 @@
 - Document every class and every class member with XML doc comments, and add documentation for any undocumented members you touch.
 - For methods longer than 10 lines, explain internal operations with `//` comments; update existing methods that violate this.
 - File and type naming follows standard C# conventions (PascalCase for types, camelCase for locals/parameters).
+- **Field Naming Convention**: All fields (private, protected, public, static, readonly, const) must use camelCase starting with a lowercase letter. Never use underscore prefix (`_field`) or PascalCase for fields.
+  - ✅ Good: `private readonly string contentRoot;`
+  - ✅ Good: `private static McpToolRegistry toolRegistry;`
+  - ✅ Good: `private const int MaxRetries = 3;` (exception: const can use PascalCase for constants that act like static readonly configuration)
+  - ❌ Bad: `private readonly string _contentRoot;`
+  - ❌ Bad: `private readonly string ContentRoot;`
+  - Use `this.` qualifier when field name conflicts with parameter name in constructors.
 
 ## Testing Guidelines
 - There are no automated tests in this repository yet.
 - If you add tests, keep them close to the feature area and document how to run them (e.g., `dotnet test`) in this file.
+
+## Adding New MCP Tools
+- Create a new class in `Tools/` implementing `IMcpTool`
+- Implement `Name`, `Description`, `InputSchema`, and `ExecuteAsync()`
+- Register the tool in `Program.cs` by adding it to the `McpToolRegistry` constructor
+- Add shared data models to `Tools/Models.cs` if needed
+- Tools are automatically discovered by the registry and exposed via MCP
 
 ## Commit & Pull Request Guidelines
 - Commit messages are short, imperative, and sentence case (e.g., "Add CGAL worker validation integration scaffolding").
