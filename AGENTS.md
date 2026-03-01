@@ -3,8 +3,6 @@
 ## Project Structure & Module Organization
 - `Program.cs` hosts the minimal ASP.NET Core HTTP MCP server with tool routing.
 - `Tools/` contains MCP tool implementations:
-  - `IMcpTool.cs` - Tool interface contract
-  - `McpToolRegistry.cs` - Tool discovery and registration
   - `RenderOpenScadTool.cs` - OpenSCAD rendering implementation
   - `CompareRendersTool.cs` - Image comparison implementation
   - `Models.cs` - Shared data models (ShotSpec, MeshStats, etc.)
@@ -32,7 +30,7 @@
 - File and type naming follows standard C# conventions (PascalCase for types, camelCase for locals/parameters).
 - **Field Naming Convention**: All fields (private, protected, public, static, readonly, const) must use camelCase starting with a lowercase letter. Never use underscore prefix (`_field`) or PascalCase for fields.
   - ✅ Good: `private readonly string contentRoot;`
-  - ✅ Good: `private static McpToolRegistry toolRegistry;`
+  - ✅ Good: `private static McpServerTool? tool;`
   - ✅ Good: `private const int MaxRetries = 3;` (exception: const can use PascalCase for constants that act like static readonly configuration)
   - ❌ Bad: `private readonly string _contentRoot;`
   - ❌ Bad: `private readonly string ContentRoot;`
@@ -45,11 +43,11 @@
 - After confirming builds (and tests, if any, pass), commit the changes with an appropriate message.
 
 ## Adding New MCP Tools
-- Create a new class in `Tools/` implementing `IMcpTool`
-- Implement `Name`, `Description`, `InputSchema`, and `ExecuteAsync()`
-- Register the tool in `Program.cs` by adding it to the `McpToolRegistry` constructor
+- Create a new class in `Tools/` and mark it with `[McpServerToolType]`
+- Add one or more `[McpServerTool]` methods with `[Description]` metadata
+- Register shared dependencies with DI in `Program.cs` (tools are discovered via `WithToolsFromAssembly`)
 - Add shared data models to `Tools/Models.cs` if needed
-- Tools are automatically discovered by the registry and exposed via MCP
+- Tools are automatically discovered from the assembly and exposed via MCP
 
 ## Commit & Pull Request Guidelines
 - Commit messages are short, imperative, and sentence case (e.g., "Add CGAL worker validation integration scaffolding").

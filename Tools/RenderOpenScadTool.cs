@@ -1,8 +1,11 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using c_server.Validation;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
@@ -13,8 +16,32 @@ using SixLabors.ImageSharp.Processing;
 namespace c_server.Tools;
 
 /// <summary>Renders OpenSCAD files into deterministic multi-view PNG outputs.</summary>
-public sealed class RenderOpenScadTool : IMcpTool
+[McpServerToolType]
+public sealed class RenderOpenScadTool
 {
+  /// <summary>Tool description presented to MCP clients.</summary>
+  private const string ToolDescription = "Render an OpenSCAD .scad file into 6 deterministic PNG views. " +
+    "Returns MCP image content blocks with base64 payloads and fixed XYZ color legend." +
+    "The 6 views are: top_ne, top_sw, bottom_ne, bottom_sw, top, and a zoomed x3 version of top_ne. " +
+    "OpenSCAD facet controls (the practical FN settings to use) are: " +
+    "$fn: fixed number of fragments (explicit polygon sides; great for final quality cylinders/spheres), " +
+    "$fa: minimum angle per fragment in degrees (adaptive smoothness based on curvature; good global quality control), " +
+    "$fs: minimum fragment size in model units (adaptive smoothness based on physical segment length; good for " +
+    "scale-consistent tessellation). " +
+    "How they interact: if $fn is set > 0 it overrides $fa/$fs; if $fn is 0 or unset then OpenSCAD derives fragments from " +
+    "$fa and $fs together. " +
+    "Common usage guidance: quick preview uses lower detail (example $fn=24 or coarse $fa/$fs), final export uses higher " +
+    "detail (example $fn=96+, or tighter $fa/$fs such as $fa=4 and $fs=0.5). " +
+    "For threaded, press-fit, and screw interfaces, increase tessellation to reduce fit error from faceting. " +
+    "IF YOU SEE A MISMATCH YOU MUST CALL THIS TOOL AGAIN AND REVIEW RESULTS AGAIN. YOU MUST PAY ATTENTION TO DETAILS. " +
+    "MOST OF THE TIME YOU WILL NOT BE ABLE TO ONE-SHOT THIS, SO PLEASE REFACTOR UNTIL YOU ARE REALLY CONFIDENT. " +
+    "When integrating some parts into you design like bits or screws, you must always think about how they will fit or " +
+    "integrate with the rest of the design. You should always consider the dimensions, tolerances, and how the parts will " +
+    "be assembled together including convergence of holes allowing for screws or press fit, and how the parts will " +
+    "interact with each other in the final design. Always keep in mind the practical aspects of manufacturing and " +
+    "assembly when designing with OpenSCAD or any CAD software. If we are planning to make a hole, check if it doesn't " +
+    "pass through another hole. Mind the fn= parameter.";
+
   /// <summary>Fixed render size string reported to MCP clients.</summary>
   private const string FixedRenderSize = "1600x1200";
   /// <summary>Fixed render width in pixels.</summary>
@@ -26,8 +53,6 @@ public sealed class RenderOpenScadTool : IMcpTool
 
   /// <summary>CGAL validation service used for mesh checks.</summary>
   private readonly CgalWorkerValidationService validationService;
-  /// <summary>Content root used to resolve default paths.</summary>
-  private readonly string contentRoot;
 
   /// <summary>Base render shots produced for each request.</summary>
   private readonly List<ShotSpec> baseShots =
@@ -41,73 +66,30 @@ public sealed class RenderOpenScadTool : IMcpTool
 
   /// <summary>Creates a render tool using the provided validation service.</summary>
   /// <param name="validationService">CGAL validation service.</param>
-  /// <param name="contentRoot">Content root for resolving output paths.</param>
-  public RenderOpenScadTool(CgalWorkerValidationService validationService, string contentRoot)
+  public RenderOpenScadTool(CgalWorkerValidationService validationService)
   {
     this.validationService = validationService;
-    this.contentRoot = contentRoot;
   }
 
-  /// <summary>Tool name exposed to MCP clients.</summary>
-  public string Name => "render_openscad";
-
-  /// <summary>Human-readable description for MCP tool discovery.</summary>
-  public string Description => string.Concat(
-    "Render an OpenSCAD .scad file into 6 deterministic PNG views. ",
-    "Returns MCP image content blocks with base64 payloads and fixed XYZ color legend.",
-    "The 6 views are: top_ne, top_sw, bottom_ne, bottom_sw, top, and a zoomed x3 version of top_ne. ",
-    "OpenSCAD facet controls (the practical FN settings to use) are: ",
-    "$fn: fixed number of fragments (explicit polygon sides; great for final quality cylinders/spheres), ",
-    "$fa: minimum angle per fragment in degrees (adaptive smoothness based on curvature; good global quality control), ",
-    "$fs: minimum fragment size in model units (adaptive smoothness based on physical segment length; good for " +
-    "scale-consistent tessellation). ",
-    "How they interact: if $fn is set > 0 it overrides $fa/$fs; if $fn is 0 or unset then OpenSCAD derives fragments from " +
-    "$fa and $fs together. ",
-    "Common usage guidance: quick preview uses lower detail (example $fn=24 or coarse $fa/$fs), final export uses higher " +
-    "detail (example $fn=96+, or tighter $fa/$fs such as $fa=4 and $fs=0.5). ",
-    "For threaded, press-fit, and screw interfaces, increase tessellation to reduce fit error from faceting. ",
-    "IF YOU SEE A MISMATCH YOU MUST CALL THIS TOOL AGAIN AND REVIEW RESULTS AGAIN. YOU MUST PAY ATTENTION TO DETAILS. " +
-    "MOST OF THE TIME YOU WILL NOT BE ABLE TO ONE-SHOT THIS, SO PLEASE REFACTOR UNTIL YOU ARE REALLY CONFIDENT. ",
-    "When integrating some parts into you design like bits or screws, you must always think about how they will fit or " +
-    "integrate with the rest of the design. You should always consider the dimensions, tolerances, and how the parts will " +
-    "be assembled together including convergence of holes allowing for screws or press fit, and how the parts will " +
-    "interact with each other in the final design. Always keep in mind the practical aspects of manufacturing and " +
-    "assembly when designing with OpenSCAD or any CAD software. If we are planning to make a hole, check if it doesn't " +
-    "pass through another hole. Mind the fn= parameter."
-  );
-
-  /// <summary>JSON schema describing input arguments for the tool.</summary>
-  public object InputSchema => new
-  {
-    type = "object",
-    properties = new
-    {
-      scad_file_path = new
-      {
-        type = "string",
-        description = "Absolute or workspace-relative path to a .scad file on disk. Image size is fixed by server policy.",
-      },
-    },
-    required = (string[])["scad_file_path"],
-    additionalProperties = false,
-  };
-
   /// <summary>Executes the render pipeline and returns MCP content.</summary>
-  /// <param name="args">JSON arguments containing the SCAD file path.</param>
+  /// <param name="scad_file_path">Absolute or workspace-relative path to a .scad file on disk.</param>
+  /// <param name="cancellationToken">Token used to cancel the operation.</param>
   /// <returns>Structured MCP response payload.</returns>
-  public async Task<object> ExecuteAsync(JsonElement args)
+  [McpServerTool(Name = "render_openscad", UseStructuredContent = true)]
+  [Description(ToolDescription)]
+  public async Task<CallToolResult> RenderOpenScad(
+    [Description("Absolute or workspace-relative path to a .scad file on disk. Image size is fixed by server policy.")]
+    string scad_file_path,
+    CancellationToken cancellationToken)
   {
-    // Extract and validate the SCAD file path argument.
-    var scadPathRaw = args.TryGetProperty("scad_file_path", out var scadPathElement)
-      ? scadPathElement.GetString()
-      : null;
-
-    if (string.IsNullOrWhiteSpace(scadPathRaw))
+    // Validate inputs and ensure the request is still active.
+    cancellationToken.ThrowIfCancellationRequested();
+    if (string.IsNullOrWhiteSpace(scad_file_path))
     {
       throw new ArgumentException("'scad_file_path' must be a non-empty string");
     }
 
-    var scadPath = ResolveScadPath(scadPathRaw!);
+    var scadPath = ResolveScadPath(scad_file_path);
     if (!scadPath.EndsWith(".scad", StringComparison.OrdinalIgnoreCase))
     {
       throw new ArgumentException("'scad_file_path' must point to a .scad file");
@@ -120,7 +102,8 @@ public sealed class RenderOpenScadTool : IMcpTool
     }
 
     // Render the model and gather the resulting payload.
-    var scadCode = await File.ReadAllTextAsync(scadPath);
+    // Read the SCAD source and render the fixed camera shots.
+    var scadCode = await File.ReadAllTextAsync(scadPath, cancellationToken);
     var payload = RenderFixedShots(scadCode, scadPath);
 
     var renders = payload.Renders;
@@ -130,12 +113,11 @@ public sealed class RenderOpenScadTool : IMcpTool
     }
 
     // Build the content array with status and image payloads.
-    var content = new List<object>
+    var content = new List<ContentBlock>
     {
-      new
+      new TextContentBlock
       {
-        type = "text",
-        text = $"OpenSCAD render completed. images={renders.Count}, fixed_size={FixedRenderSize}, source={scadPath}, edge_counter={payload.EdgeCounter}",
+        Text = $"OpenSCAD render completed. images={renders.Count}, fixed_size={FixedRenderSize}, source={scadPath}, edge_counter={payload.EdgeCounter}",
       },
     };
 
@@ -146,18 +128,18 @@ public sealed class RenderOpenScadTool : IMcpTool
         " | ",
         payload.Validation.Warnings.Select(w => $"{w.Code}:{w.Message}")
       );
-      content.Add(new
+      content.Add(new TextContentBlock
       {
-        type = "text",
-        text = $"Validation warnings ({payload.Validation.Engine}): {summary}",
+        Text = $"Validation warnings ({payload.Validation.Engine}): {summary}",
       });
     }
 
     var imageInfo = new List<object>();
     for (var i = 0; i < renders.Count; i++)
     {
+      cancellationToken.ThrowIfCancellationRequested();
       var render = renders[i];
-      var imageBytes = await File.ReadAllBytesAsync(render.ImagePath);
+      var imageBytes = await File.ReadAllBytesAsync(render.ImagePath, cancellationToken);
       var imageB64 = Convert.ToBase64String(imageBytes);
       var index = i + 1;
 
@@ -170,37 +152,36 @@ public sealed class RenderOpenScadTool : IMcpTool
         view_label = render.ViewLabel,
       });
 
-      content.Add(new
+      content.Add(new TextContentBlock
       {
-        type = "text",
-        text = $"Image {index}: view={render.ViewLabel}, path={render.ImagePath}, size={render.ImageSize}, mime={render.MimeType}",
+        Text = $"Image {index}: view={render.ViewLabel}, path={render.ImagePath}, size={render.ImageSize}, mime={render.MimeType}",
       });
-      content.Add(new
+      content.Add(new ImageContentBlock
       {
-        type = "image",
-        image_path = render.ImagePath,
-        data = imageB64,
-        mimeType = render.MimeType,
+        Data = imageB64,
+        MimeType = render.MimeType,
       });
     }
 
     // Return content plus structured metadata for downstream use.
-    return new
+    var structuredContent = JsonSerializer.SerializeToNode(new
     {
-      content,
-      structuredContent = new
-      {
-        annotation_mode = payload.AnnotationMode,
-        overlays = payload.Overlays,
-        mesh_stats = payload.MeshStats,
-        edge_counter = payload.EdgeCounter,
-        shot_policy = payload.ShotPolicy,
-        shot_manifest = payload.ShotManifest,
-        camera = payload.Camera,
-        validation = payload.Validation,
-        images = imageInfo,
-      },
-      isError = false,
+      annotation_mode = payload.AnnotationMode,
+      overlays = payload.Overlays,
+      mesh_stats = payload.MeshStats,
+      edge_counter = payload.EdgeCounter,
+      shot_policy = payload.ShotPolicy,
+      shot_manifest = payload.ShotManifest,
+      camera = payload.Camera,
+      validation = payload.Validation,
+      images = imageInfo,
+    });
+
+    return new CallToolResult
+    {
+      Content = content,
+      StructuredContent = structuredContent,
+      IsError = false,
     };
   }
 

@@ -1,5 +1,8 @@
+using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -7,73 +10,51 @@ using SixLabors.ImageSharp.Processing;
 namespace c_server.Tools;
 
 /// <summary>Compares two images and reports similarity metrics.</summary>
-public sealed class CompareRendersTool : IMcpTool
+[McpServerToolType]
+public sealed class CompareRendersTool
 {
-  /// <summary>Tool name exposed to MCP clients.</summary>
-  public string Name => "compare_renders";
-
-  /// <summary>Human-readable description for MCP tool discovery.</summary>
-  public string Description => string.Concat(
-    "Compare two images and return quantitative similarity metrics. ",
-    "CRITICAL: Use this tool AFTER EVERY render to objectively measure how well your OpenSCAD model matches the reference image. ",
-    "Returns SSIM (structural similarity, 0.0-1.0 where 1.0=identical), MSE (mean squared error, lower=better), ",
-    "histogram correlation (color distribution match, -1.0 to 1.0 where 1.0=perfect), and edge alignment score. ",
-    "WHEN TO USE: (1) After generating OpenSCAD code, render it and compare to reference image. ",
-    "(2) After each iteration/refinement to measure if changes improved accuracy. ",
-    "(3) To identify which view angles show the biggest mismatches. ",
-    "INTERPRETATION: SSIM > 0.95 = excellent match, 0.85-0.95 = good match, 0.70-0.85 = moderate match, < 0.70 = poor match requiring redesign. ",
-    "MSE < 100 = excellent, 100-500 = acceptable, > 500 = significant differences. ",
-    "Histogram correlation > 0.90 = colors/tones match well, < 0.70 = color distribution differs substantially. ",
-    "WORKFLOW: Always compare the same view angles (e.g., compare reference top_ne view with rendered top_ne view). ",
-    "Use structured metrics to guide iterative improvements - don't rely on visual inspection alone."
-  );
-
-  /// <summary>JSON schema describing input arguments for the tool.</summary>
-  public object InputSchema => new
-  {
-    type = "object",
-    properties = new
-    {
-      reference_image_path = new
-      {
-        type = "string",
-        description = "Absolute or relative path to the reference/target image (e.g., original product photo).",
-      },
-      rendered_image_path = new
-      {
-        type = "string",
-        description = "Absolute or relative path to the rendered image from OpenSCAD to compare against reference.",
-      },
-    },
-    required = (string[])["reference_image_path", "rendered_image_path"],
-    additionalProperties = false,
-  };
+  /// <summary>Tool description presented to MCP clients.</summary>
+  private const string ToolDescription = "Compare two images and return quantitative similarity metrics. " +
+    "CRITICAL: Use this tool AFTER EVERY render to objectively measure how well your OpenSCAD model matches the reference image. " +
+    "Returns SSIM (structural similarity, 0.0-1.0 where 1.0=identical), MSE (mean squared error, lower=better), " +
+    "histogram correlation (color distribution match, -1.0 to 1.0 where 1.0=perfect), and edge alignment score. " +
+    "WHEN TO USE: (1) After generating OpenSCAD code, render it and compare to reference image. " +
+    "(2) After each iteration/refinement to measure if changes improved accuracy. " +
+    "(3) To identify which view angles show the biggest mismatches. " +
+    "INTERPRETATION: SSIM > 0.95 = excellent match, 0.85-0.95 = good match, 0.70-0.85 = moderate match, < 0.70 = poor match requiring redesign. " +
+    "MSE < 100 = excellent, 100-500 = acceptable, > 500 = significant differences. " +
+    "Histogram correlation > 0.90 = colors/tones match well, < 0.70 = color distribution differs substantially. " +
+    "WORKFLOW: Always compare the same view angles (e.g., compare reference top_ne view with rendered top_ne view). " +
+    "Use structured metrics to guide iterative improvements - don't rely on visual inspection alone.";
 
   /// <summary>Executes the comparison workflow.</summary>
-  /// <param name="args">JSON arguments containing image paths.</param>
+  /// <param name="reference_image_path">Absolute or relative path to the reference image.</param>
+  /// <param name="rendered_image_path">Absolute or relative path to the rendered image.</param>
+  /// <param name="cancellationToken">Token used to cancel the operation.</param>
   /// <returns>Structured MCP response payload.</returns>
-  public async Task<object> ExecuteAsync(JsonElement args)
+  [McpServerTool(Name = "compare_renders", UseStructuredContent = true)]
+  [Description(ToolDescription)]
+  public async Task<CallToolResult> CompareRenders(
+    [Description("Absolute or relative path to the reference/target image (e.g., original product photo).")]
+    string reference_image_path,
+    [Description("Absolute or relative path to the rendered image from OpenSCAD to compare against reference.")]
+    string rendered_image_path,
+    CancellationToken cancellationToken)
   {
-    // Extract and validate input paths.
-    var refPathRaw = args.TryGetProperty("reference_image_path", out var refPathElement)
-      ? refPathElement.GetString()
-      : null;
-    var renderedPathRaw = args.TryGetProperty("rendered_image_path", out var renderedPathElement)
-      ? renderedPathElement.GetString()
-      : null;
-
-    if (string.IsNullOrWhiteSpace(refPathRaw))
+    // Validate inputs and ensure the request is still active.
+    cancellationToken.ThrowIfCancellationRequested();
+    if (string.IsNullOrWhiteSpace(reference_image_path))
     {
       throw new ArgumentException("'reference_image_path' must be a non-empty string");
     }
 
-    if (string.IsNullOrWhiteSpace(renderedPathRaw))
+    if (string.IsNullOrWhiteSpace(rendered_image_path))
     {
       throw new ArgumentException("'rendered_image_path' must be a non-empty string");
     }
 
-    var refPath = ResolveImagePath(refPathRaw!);
-    var renderedPath = ResolveImagePath(renderedPathRaw!);
+    var refPath = ResolveImagePath(reference_image_path);
+    var renderedPath = ResolveImagePath(rendered_image_path);
 
     // Confirm both images exist before comparison.
     if (!File.Exists(refPath))
@@ -87,30 +68,32 @@ public sealed class CompareRendersTool : IMcpTool
     }
 
     // Execute the comparison in a background task.
-    var comparisonResult = await Task.Run(() => CompareImages(refPath, renderedPath));
+    // Execute the comparison in a background task.
+    var comparisonResult = await Task.Run(() => CompareImages(refPath, renderedPath), cancellationToken);
 
     // Return a summary plus structured metrics.
-    return new
+    var structuredContent = JsonSerializer.SerializeToNode(new
     {
-      content = (object[])
-      [
-        new
-        {
-          type = "text",
-          text = comparisonResult.Summary,
-        },
-      ],
-      structuredContent = new
+      ssim = comparisonResult.Ssim,
+      mse = comparisonResult.Mse,
+      histogram_correlation = comparisonResult.HistogramCorrelation,
+      edge_alignment = comparisonResult.EdgeAlignment,
+      reference_path = refPath,
+      rendered_path = renderedPath,
+      interpretation = comparisonResult.Interpretation,
+    });
+
+    return new CallToolResult
+    {
+      Content = new List<ContentBlock>
       {
-        ssim = comparisonResult.Ssim,
-        mse = comparisonResult.Mse,
-        histogram_correlation = comparisonResult.HistogramCorrelation,
-        edge_alignment = comparisonResult.EdgeAlignment,
-        reference_path = refPath,
-        rendered_path = renderedPath,
-        interpretation = comparisonResult.Interpretation,
+        new TextContentBlock
+        {
+          Text = comparisonResult.Summary,
+        },
       },
-      isError = false,
+      StructuredContent = structuredContent,
+      IsError = false,
     };
   }
 

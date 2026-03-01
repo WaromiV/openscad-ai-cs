@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.8.0-preview.1" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.6" />
     <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.5" />
   </ItemGroup>
