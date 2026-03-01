@@ -8,9 +8,11 @@ HTTP MCP server in C# that renders OpenSCAD models into deterministic multi-view
 - Health/root endpoint (`GET /`) returning `server up`
 - Tool: `render_openscad`
   - Input: `scad_file_path` (path to `.scad` file)
+  - Optional input: `print_process` (`fdm` or `sla`, default `fdm`)
   - Fixed render size: `1600x1200` (not user-configurable)
   - Output: 6 deterministic views with MCP `image` content blocks (base64 PNG)
   - Views: top_ne, zoomed top_ne x3, top_sw, bottom_ne, bottom_sw, top
+  - Strict printability rule with automatic enforcement: near-zero wall thickness at edges is forbidden; minimum wall thickness is 1.0 mm for FDM and 2.0 mm for SLA
 - Tool: `compare_renders`
   - Input: `reference_image_path` (target/original image), `rendered_image_path` (OpenSCAD render)
   - Output: Quantitative similarity metrics with interpretation

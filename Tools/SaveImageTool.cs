@@ -19,7 +19,7 @@ public sealed class SaveImageTool
   /// <param name="subdir">Optional subdirectory under the workspace to store the image.</param>
   /// <param name="cancellationToken">Token used to cancel the operation.</param>
   /// <returns>Structured MCP response payload.</returns>
-  [McpServerTool(Name = "save_image", UseStructuredContent = true)]
+  [McpServerTool(Name = "save_image")]
   [Description(ToolDescription)]
   public Task<CallToolResult> SaveImage(
     [Description("Base64-encoded image data (PNG or JPEG).")]

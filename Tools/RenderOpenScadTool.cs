@@ -40,7 +40,11 @@ public sealed class RenderOpenScadTool
     "be assembled together including convergence of holes allowing for screws or press fit, and how the parts will " +
     "interact with each other in the final design. Always keep in mind the practical aspects of manufacturing and " +
     "assembly when designing with OpenSCAD or any CAD software. If we are planning to make a hole, check if it doesn't " +
-    "pass through another hole. Mind the fn= parameter.";
+    "pass through another hole. Mind the fn= parameter. " +
+    "STRICT WALL-THICKNESS RULE: near-zero edge wall thickness is forbidden because parts will crack. " +
+    "Minimum wall thickness must be at least 1.0 mm for FDM printing, and around 2.0 mm for SLA printing. " +
+    "This tool automatically validates that threshold using the print_process parameter (fdm or sla). " +
+    "If a design appears thinner than these limits, you must redesign before finalizing.";
 
   /// <summary>Fixed render size string reported to MCP clients.</summary>
   private const string FixedRenderSize = "1600x1200";
@@ -50,6 +54,14 @@ public sealed class RenderOpenScadTool
   private const int FixedHeight = 1200;
   /// <summary>Label for the zoomed top-right render.</summary>
   private const string ZoomShotLabel = "zoomed x3 iso with top + NORTH EAST seen";
+  /// <summary>Canonical print-process value for FDM checks.</summary>
+  private const string FdmPrintProcess = "fdm";
+  /// <summary>Canonical print-process value for SLA checks.</summary>
+  private const string SlaPrintProcess = "sla";
+  /// <summary>Minimum wall thickness threshold for FDM prints in millimeters.</summary>
+  private const double FdmMinWallThicknessMm = 1.0;
+  /// <summary>Minimum wall thickness threshold for SLA prints in millimeters.</summary>
+  private const double SlaMinWallThicknessMm = 2.0;
 
   /// <summary>CGAL validation service used for mesh checks.</summary>
   private readonly CgalWorkerValidationService validationService;
@@ -73,14 +85,17 @@ public sealed class RenderOpenScadTool
 
   /// <summary>Executes the render pipeline and returns MCP content.</summary>
   /// <param name="scad_file_path">Absolute or workspace-relative path to a .scad file on disk.</param>
+  /// <param name="print_process">Print process for automatic wall-thickness checks (fdm or sla).</param>
   /// <param name="cancellationToken">Token used to cancel the operation.</param>
   /// <returns>Structured MCP response payload.</returns>
-  [McpServerTool(Name = "render_openscad", UseStructuredContent = true)]
+  [McpServerTool(Name = "render_openscad")]
   [Description(ToolDescription)]
   public async Task<CallToolResult> RenderOpenScad(
     [Description("Absolute or workspace-relative path to a .scad file on disk. Image size is fixed by server policy.")]
     string scad_file_path,
-    CancellationToken cancellationToken)
+    [Description("Print process for automatic minimum wall-thickness validation: 'fdm' (>= 1.0 mm) or 'sla' (>= 2.0 mm). Default: fdm.")]
+    string? print_process = null,
+    CancellationToken cancellationToken = default)
   {
     // Validate inputs and ensure the request is still active.
     cancellationToken.ThrowIfCancellationRequested();
@@ -101,10 +116,11 @@ public sealed class RenderOpenScadTool
       throw new FileNotFoundException($"SCAD file not found: {scadPath}");
     }
 
+    var printProcess = NormalizePrintProcess(print_process);
+    var minWallThicknessMm = GetMinWallThicknessForProcess(printProcess);
+
     // Render the model and gather the resulting payload.
-    // Read the SCAD source and render the fixed camera shots.
-    var scadCode = await File.ReadAllTextAsync(scadPath, cancellationToken);
-    var payload = RenderFixedShots(scadCode, scadPath);
+    var payload = RenderFixedShots(scadPath, printProcess, minWallThicknessMm);
 
     var renders = payload.Renders;
     if (renders.Count != 6)
@@ -117,12 +133,12 @@ public sealed class RenderOpenScadTool
     {
       new TextContentBlock
       {
-        Text = $"OpenSCAD render completed. images={renders.Count}, fixed_size={FixedRenderSize}, source={scadPath}, edge_counter={payload.EdgeCounter}",
+        Text = $"OpenSCAD render completed. images={renders.Count}, fixed_size={FixedRenderSize}, source={scadPath}, edge_counter={payload.EdgeCounter}, print_process={printProcess}, min_wall_thickness_mm={minWallThicknessMm:0.###}",
       },
     };
 
     // Emit validation warnings when present.
-    if (!payload.Validation.Ok && payload.Validation.Warnings.Count > 0)
+    if (payload.Validation.Warnings.Count > 0)
     {
       var summary = string.Join(
         " | ",
@@ -174,6 +190,8 @@ public sealed class RenderOpenScadTool
       shot_manifest = payload.ShotManifest,
       camera = payload.Camera,
       validation = payload.Validation,
+      print_process = printProcess,
+      required_min_wall_thickness_mm = minWallThicknessMm,
       images = imageInfo,
     });
 
@@ -186,10 +204,14 @@ public sealed class RenderOpenScadTool
   }
 
   /// <summary>Runs the fixed-shot render pipeline and returns the payload.</summary>
-  /// <param name="scadCode">Source SCAD code.</param>
   /// <param name="scadPath">SCAD file path.</param>
+  /// <param name="printProcess">Print process for wall-thickness checks.</param>
+  /// <param name="minWallThicknessMm">Minimum required wall thickness in millimeters.</param>
   /// <returns>Render payload with images and metadata.</returns>
-  private RenderPayload RenderFixedShots(string scadCode, string scadPath)
+  private RenderPayload RenderFixedShots(
+    string scadPath,
+    string printProcess,
+    double minWallThicknessMm)
   {
     // Prepare the render output directory.
     var projectRoot = ResolveProjectRoot();
@@ -202,7 +224,7 @@ public sealed class RenderOpenScadTool
     {
       ExportAsciiStl(scadPath, stlPath);
       var meshStats = ParseMeshStats(stlPath);
-      var validation = validationService.Validate(stlPath);
+      var validation = validationService.Validate(stlPath, minWallThicknessMm, printProcess);
       var center = ComputeCenter(meshStats);
       var distance = ComputeDistance(meshStats);
 
@@ -304,6 +326,38 @@ public sealed class RenderOpenScadTool
     }
 
     return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), rawPath));
+  }
+
+  /// <summary>Normalizes an optional print-process value to a supported identifier.</summary>
+  /// <param name="rawProcess">Raw process value provided by the caller.</param>
+  /// <returns>Normalized process identifier.</returns>
+  private string NormalizePrintProcess(string? rawProcess)
+  {
+    // Default to FDM when no process was explicitly provided.
+    var normalized = string.IsNullOrWhiteSpace(rawProcess)
+      ? FdmPrintProcess
+      : rawProcess.Trim().ToLowerInvariant();
+
+    return normalized switch
+    {
+      FdmPrintProcess => FdmPrintProcess,
+      SlaPrintProcess => SlaPrintProcess,
+      _ => throw new ArgumentException("'print_process' must be either 'fdm' or 'sla'"),
+    };
+  }
+
+  /// <summary>Gets the required minimum wall thickness for a print process.</summary>
+  /// <param name="printProcess">Normalized print-process identifier.</param>
+  /// <returns>Required minimum wall thickness in millimeters.</returns>
+  private double GetMinWallThicknessForProcess(string printProcess)
+  {
+    // Map process type to its strict minimum wall-thickness threshold.
+    return printProcess switch
+    {
+      FdmPrintProcess => FdmMinWallThicknessMm,
+      SlaPrintProcess => SlaMinWallThicknessMm,
+      _ => throw new ArgumentException($"Unsupported print process '{printProcess}'"),
+    };
   }
 
   /// <summary>Exports an ASCII STL file from OpenSCAD.</summary>

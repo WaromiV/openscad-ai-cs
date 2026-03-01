@@ -32,7 +32,7 @@ public sealed class CompareRendersTool
   /// <param name="rendered_image_path">Absolute or relative path to the rendered image.</param>
   /// <param name="cancellationToken">Token used to cancel the operation.</param>
   /// <returns>Structured MCP response payload.</returns>
-  [McpServerTool(Name = "compare_renders", UseStructuredContent = true)]
+  [McpServerTool(Name = "compare_renders")]
   [Description(ToolDescription)]
   public async Task<CallToolResult> CompareRenders(
     [Description("Absolute or relative path to the reference/target image (e.g., original product photo).")]

@@ -6,6 +6,7 @@ This worker performs mesh validation with CGAL and is called by the C# MCP serve
 
 - Connected components (`DETACHED_PARTS` warning when > 1)
 - Self-intersections (`SELF_INTERSECTIONS` warning when any found)
+- Automatic minimum wall thickness check when `--min-wall-thickness-mm` is provided (`MIN_WALL_THICKNESS_VIOLATION` when below threshold)
 
 ## Build
 
@@ -37,7 +38,7 @@ Or set:
 Input:
 
 ```bash
-cgal_worker /absolute/path/to/model.stl
+cgal_worker /absolute/path/to/model.stl [--min-wall-thickness-mm 1.0] [--print-process fdm]
 ```
 
 Output JSON to stdout:
